@@ -1,0 +1,133 @@
+name: Build
+
+on: [push]
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    if: "contains(github.event.head_commit.message, '[build]')"
+
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-18.04
+          # - windows-latest
+          # - macOS-latest
+
+        llvm_version:
+          - 10.0.0
+          - 9.0.1
+          - 8.0.1
+          - 7.0.0 # 7.1.0 branch is missing
+          - 6.0.1
+          - 5.0.2
+
+    steps:
+
+    # Environment variables
+    - name: Set version env variables
+      run: |
+        echo ::set-env name=VERSION::${{ matrix.llvm_version }}
+        echo ::set-env name=VERSION_float::$( echo ${{ matrix.llvm_version }} | sed -n 's/\([0-9]*.[0-9]\)..*$/\1/p' )
+        echo ::set-env name=VERSION_int::$( echo ${{ matrix.llvm_version }} | sed -n 's/\([0-9]*\)..*$/\1/p' )
+    - name: Find install version
+      run: echo ::set-env name=INSTALL_VERSION::$( if [ $VERSION_int -ge 7 ]; then echo $VERSION_int; else echo $VERSION_float; fi )
+
+    # Install Dependencies
+    - name: Ubuntu dependencies
+      if: startsWith(matrix.os,'ubuntu')
+      run: |
+          # llvm
+          sudo add-apt-repository "deb http://apt.llvm.org/bionic/ llvm-toolchain-bionic-$INSTALL_VERSION main"
+          wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+          sudo apt-get install -y clang-$INSTALL_VERSION
+          sudo apt-get install -y llvm-$INSTALL_VERSION-dev
+          sudo apt-get install -y libclang-$INSTALL_VERSION-dev
+          # ninja
+          sudo apt-get install -y ninja-build
+          # ncourses
+          if [ $VERSION_int -le 6 ]; then
+            sudo apt-get install libncurses5-dev libncursesw5-dev
+          fi
+    - name: Windows dependencies
+      if: startsWith(matrix.os,'windows')
+      run: |
+          choco install -y ninja
+          choco install -y llvm --version=$VERSION
+    - name: MacOS dependencies
+      if: startsWith(matrix.os,'macos')
+      run: |
+          brew install ninja
+    # LLVM Path
+    - name: Absolute paths to LLVM's root and bin directory
+      run: |
+        echo ::set-env name=PREFIX_PATH::$( llvm-config-$INSTALL_VERSION --prefix )
+        echo ::set-env name=BIN_PATH::$( llvm-config-$INSTALL_VERSION --bindir )
+    - name: Windows - Absolute paths to LLVM's root and bin directory
+      if: startsWith(matrix.os,'windows')
+      run: |
+        echo ::set-env name=PREFIX_PATH::$( which clang | xargs -0 dirname | xargs -0 dirname )
+        echo ::set-env name=BIN_PATH::$( which clang | xargs -0 dirname )
+    # Checkout proper Branch
+    - name: Find checkout branch
+      run: echo ::set-env name=CHECKOUT_BRANCH::$( if [ $VERSION_int -ge 10 ]; then echo $VERSION_int; else echo $VERSION_float; fi )
+    - name: Checkout branch
+      uses: actions/checkout@v2
+      with:
+        ref: clang_${{env.CHECKOUT_BRANCH}}
+
+    # Build dir
+    - name: Create build directory
+      run: mkdir build
+
+    # Build
+    - name: Build IWYU
+      working-directory: ./build
+      run: |
+        if [ $VERSION_int -ge 7 ]; then
+          cmake -GNinja -DCMAKE_PREFIX_PATH=$PREFIX_PATH -DCMAKE_C_COMPILER=$BIN_PATH/clang -DCMAKE_CXX_COMPILER=$BIN_PATH/clang++ -DCMAKE_INSTALL_PREFIX=./ $EXTRA_FLAGS ../
+          ninja
+        elif [ $VERSION_int -ge 5 ]; then
+          cmake -GNinja -DIWYU_LLVM_ROOT_PATH=$PREFIX_PATH -DCMAKE_C_COMPILER=$BIN_PATH/clang -DCMAKE_CXX_COMPILER=$BIN_PATH/clang++ -DCMAKE_INSTALL_PREFIX=./ ../
+        fi
+    - name: Upload the build dir
+      uses: actions/upload-artifact@v2
+      with:
+        name: build_${{env.VERSION_float}}
+        path: ./build
+
+    - name: Test IWYU
+      working-directory: ./build
+      run: |
+        if [ $VERSION_int -ge 9 ]; then
+          CTEST_OUTPUT_ON_FAILURE=1 ninja test
+        elif [ $VERSION_int -ge 7 ]; then
+          cd ..
+          python run_iwyu_tests.py -- build/bin/include-what-you-use
+          python fix_includes_test.py
+          python iwyu_tool_test.py
+        elif [ $VERSION_int -ge 5 ]; then
+          cd ..
+          python run_iwyu_tests.py -- build/bin/include-what-you-use
+          python fix_includes_test.py
+        fi
+    - name: Test install
+      working-directory: ./build
+      run: |
+        ninja install
+    - name: Check license headers
+      run: |
+        if [ $VERSION_int -ge 10 ]; then
+          git ls-tree --full-tree --name-only -r HEAD | xargs ./iwyu-check-license-header.py
+        fi
+  Skip:
+    if: "!contains(github.event.head_commit.message, '[build]')"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip build 🚫
+        run: echo skip build
