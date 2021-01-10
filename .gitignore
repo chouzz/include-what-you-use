@@ -9,4 +9,5 @@ compile_commands.json
 tags
 TAGS
 
-/build
+/build*
+.clangd
