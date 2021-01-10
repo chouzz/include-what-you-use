@@ -15,7 +15,7 @@ jobs:
       fail-fast: false
       matrix:
         os:
-          - ubuntu-18.04
+          - ubuntu-20.04
           # - windows-latest
           # - macOS-latest
 
@@ -43,7 +43,7 @@ jobs:
       if: startsWith(matrix.os,'ubuntu')
       run: |
           # llvm
-          sudo add-apt-repository "deb http://apt.llvm.org/bionic/ llvm-toolchain-bionic-$INSTALL_VERSION main"
+          sudo add-apt-repository "deb http://apt.llvm.org/focal/ llvm-toolchain-focal-$INSTALL_VERSION main"
           wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
           sudo apt-get install -y clang-$INSTALL_VERSION
           sudo apt-get install -y llvm-$INSTALL_VERSION-dev
