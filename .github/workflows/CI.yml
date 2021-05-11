@@ -1,4 +1,5 @@
-name: CI
+  
+name: IWYU CI
 
 on:
   - push
@@ -10,69 +11,47 @@ defaults:
 
 jobs:
   build:
-    if: "!contains(github.event.head_commit.message, '[skip ci]')"
-
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-18.04
     strategy:
       fail-fast: false
-      matrix:
-        os:
-          - ubuntu-20.04
-    steps:
 
-    # Install Dependencies
-    - name: Ubuntu dependencies
-      if: startsWith(matrix.os,'ubuntu')
-      run: |
-          # llvm
-          sudo add-apt-repository "deb http://apt.llvm.org/focal/ llvm-toolchain-focal main"
+    steps:
+      - name: Install prerequisites
+        run: |
           wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
-          sudo apt-get install -y clang
-          sudo apt-get install -y llvm-dev
-          sudo apt-get install -y libclang-dev
-          # ninja
-          sudo apt-get install -y ninja-build
-    - name: Find installed version
-      run: echo ::set-env name=INSTALL_VERSION::$( ls -t /usr/lib/ | grep '^llvm-' | head -n 1 | sed -E 's/llvm-(.+)/\1/')
+          sudo add-apt-repository "deb http://apt.llvm.org/bionic/ llvm-toolchain-bionic main"
+          sudo apt update
+          sudo apt install -y ninja-build
+          # Remove any base dist LLVM/Clang installations
+          sudo apt remove -y "libclang-dev*"
+          sudo apt remove -y "clang*"
+          sudo apt remove -y "llvm*"
+          # Reinstall snapshot versions
+          sudo apt install -y llvm-dev
+          sudo apt install -y libclang-dev
+          sudo apt install -y clang
+      - name: Check out default branch
+        uses: actions/checkout@v2
 
-    # LLVM Path
-    - name: Absolute paths to LLVM's root and bin directory
-      run: |
-        echo ::set-env name=PREFIX_PATH::$( llvm-config-$INSTALL_VERSION --prefix )
-        echo ::set-env name=BIN_PATH::$( llvm-config-$INSTALL_VERSION --bindir )
-    - name: Checkout master branch
-      uses: actions/checkout@v2
-
-    # Build dir
-    - name: Create build directory
-      run: mkdir build
-
-    # Build
-    - name: Build IWYU
-      working-directory: ./build
-      run: |
-        cmake -GNinja -DCMAKE_PREFIX_PATH=$PREFIX_PATH -DCMAKE_C_COMPILER=$BIN_PATH/clang -DCMAKE_CXX_COMPILER=$BIN_PATH/clang++ -DCMAKE_INSTALL_PREFIX=./ ../
-        ninja
-    - name: Upload the build directory
-      uses: actions/upload-artifact@v2
-      with:
-        name: build_master
-        path: ./build
-
-    - name: Test IWYU
-      working-directory: ./build
-      run: CTEST_OUTPUT_ON_FAILURE=1 ninja test
-
-    - name: Test install
-      working-directory: ./build
-      run: ninja install
-
-    - name: Check license headers
-      run: git ls-tree --full-tree --name-only -r HEAD | xargs ./iwyu-check-license-header.py
-
-  Skip:
-    if: "contains(github.event.head_commit.message, '[skip ci]')"
-    runs-on: ubuntu-latest
-    steps:
-      - name: Skip CI 🚫
-        run: echo skip CI
+      - name: Build include-what-you-use
+        run: |
+          mkdir build
+          cd ./build
+          cmake -G Ninja \
+                -DCMAKE_C_COMPILER=clang \
+                -DCMAKE_CXX_COMPILER=clang++ \
+                -DCMAKE_INSTALL_PREFIX=./ \
+                ../
+          ninja
+      - name: Test include-what-you-use
+        run: |
+          cd ./build
+          CTEST_OUTPUT_ON_FAILURE=1 ctest -j 6
+      - name: Test install
+        run: |
+          cd ./build
+          cmake --install .
+      - name: Check license headers
+        run: |
+          git ls-tree --full-tree --name-only -r HEAD | \
+              xargs ./iwyu-check-license-header.py
