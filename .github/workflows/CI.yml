@@ -43,6 +43,11 @@ jobs:
                 -DCMAKE_INSTALL_PREFIX=./ \
                 ../
           ninja
+      - name: Download a iwyu
+        uses: actions/download-artifact@v2
+        with:
+          name: include-what-you-use
+          path: ./build/bin/include/what-you-use
       - name: Test include-what-you-use
         run: |
           cd ./build
