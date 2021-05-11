@@ -38,30 +38,6 @@ include_directories(
   ${CLANG_INCLUDE_DIRS}
   )
 
-set(LLVM_LINK_COMPONENTS
-  Option
-  Support
-  X86AsmParser
-  X86Desc
-  X86Info
-  )
-
-add_llvm_executable(include-what-you-use
-  iwyu.cc
-  iwyu_ast_util.cc
-  iwyu_cache.cc
-  iwyu_driver.cc
-  iwyu_getopt.cc
-  iwyu_globals.cc
-  iwyu_include_picker.cc
-  iwyu_lexer_utils.cc
-  iwyu_location_util.cc
-  iwyu_output.cc
-  iwyu_path_util.cc
-  iwyu_preprocessor.cc
-  iwyu_verrs.cc
-  )
-
 # Synthesize a clang-resource-headers target for out-of-tree builds (in-tree
 # already has it available by default)
 if (NOT IWYU_IN_TREE)
@@ -89,9 +65,38 @@ if (NOT IWYU_IN_TREE)
   add_custom_target(clang-resource-headers ALL DEPENDS ${out_files})
 endif()
 
+set(LLVM_LINK_COMPONENTS
+  Option
+  Support
+  X86AsmParser
+  X86Desc
+  X86Info
+  )
+
+add_llvm_executable(include-what-you-use
+  iwyu.cc
+  iwyu_ast_util.cc
+  iwyu_cache.cc
+  iwyu_driver.cc
+  iwyu_getopt.cc
+  iwyu_globals.cc
+  iwyu_include_picker.cc
+  iwyu_lexer_utils.cc
+  iwyu_location_util.cc
+  iwyu_output.cc
+  iwyu_path_util.cc
+  iwyu_preprocessor.cc
+  iwyu_verrs.cc
+  )
+
 # Add a dependency on clang-resource-headers to ensure the builtin headers are
 # available when IWYU is executed from the build dir.
 add_dependencies(include-what-you-use clang-resource-headers)
+
+# LLVM requires C++14, so follow suit.
+set_property(TARGET include-what-you-use PROPERTY CXX_STANDARD_REQUIRED ON)
+set_property(TARGET include-what-you-use PROPERTY CXX_STANDARD 14)
+set_property(TARGET include-what-you-use PROPERTY CXX_EXTENSIONS OFF)
 
 if (MINGW)
   # Work around 'too many sections' error with MINGW/GCC
@@ -172,9 +177,23 @@ endif()
 find_package(PythonInterp)
 if(PYTHONINTERP_FOUND)
   enable_testing()
-  add_test(NAME iwyu_tests
-    COMMAND ${PYTHON_EXECUTABLE} run_iwyu_tests.py -- $<TARGET_FILE:include-what-you-use>
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+
+  function(ADD_IWYU_TEST NAME FILE)
+    add_test(NAME ${NAME}
+      COMMAND ${PYTHON_EXECUTABLE} run_iwyu_tests.py --run-test-file=${FILE} -- $<TARGET_FILE:include-what-you-use>
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+  endfunction()
+
+  execute_process(
+    COMMAND ${PYTHON_EXECUTABLE} run_iwyu_tests.py --list-test-files
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    OUTPUT_VARIABLE TEST_NAMES_AND_FILES)
+  string(REPLACE "\n" ";" TEST_NAMES_LIST ${TEST_NAMES_AND_FILES})
+  foreach (TEST_NAME_AND_FILE IN ITEMS ${TEST_NAMES_LIST})
+    string(REPLACE ":" ";" TEST_NAME_AND_FILE ${TEST_NAME_AND_FILE})
+    ADD_IWYU_TEST(${TEST_NAME_AND_FILE})
+  endforeach()
+
   add_test(NAME fix_includes_test
     COMMAND ${PYTHON_EXECUTABLE} fix_includes_test.py
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
