@@ -43,6 +43,7 @@ jobs:
                 -DCMAKE_INSTALL_PREFIX=./ \
                 ../
           ninja
+          ldd bin/include-what-you-use
       - name: Download iwyu
         uses: actions/upload-artifact@master
         with:
